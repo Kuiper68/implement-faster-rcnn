@@ -222,8 +222,9 @@ class Detection(tf.keras.Model):
 		feature_vector = self.flatten(pooled_feature_maps)
 		feature_vector = self.dense(feature_vector)
 
-		cls_logits_prediction = self.object_cls_logits(feature_vector)
-		reg_prediction = self.object_reg(feature_vector)
+		cls_logits_prediction = self.object_cls_logits_prediction(
+			feature_vector)
+		reg_prediction = self.object_reg_prediction(feature_vector)
 
 		out = [cls_logits_prediction, reg_prediction]
 
