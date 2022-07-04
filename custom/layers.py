@@ -72,15 +72,19 @@ class ROIPooling(tf.keras.layers.Layer):
 		pooled_feature_maps = []
 
 		for proposal_index in range(self.number_of_proposals):
-			xmin = tf.cast(tf.math.floor(proposals[0, proposal_index, 0]))
-			ymin = tf.cast(tf.math.floor(proposals[0, proposal_index, 1]))
-			xmax = tf.cast(tf.math.floor(proposals[0, proposal_index, 2]))
-			ymax = tf.cast(tf.math.floor(proposals[0, proposal_index, 3]))
+			xmin = tf.cast(tf.math.floor(proposals[0, proposal_index, 0]),
+				tf.int32)
+			ymin = tf.cast(tf.math.floor(proposals[0, proposal_index, 1]),
+				tf.int32)
+			xmax = tf.cast(tf.math.floor(proposals[0, proposal_index, 2]),
+				tf.int32)
+			ymax = tf.cast(tf.math.floor(proposals[0, proposal_index, 3]),
+				tf.int32)
 
 			pooled_feature_maps.append(
 				tf.image.resize(feature_map[:, ymin:ymax, xmin:xmax, :],
-				size=self.pool_size, method='nearest'))
+				self.pool_size, method='nearest'))
 
-		outputs = tf.expand_dims(tf.concat(pooled_feature_maps, axis=0), axis=0)
+		outputs = tf.expand_dims(tf.concat(pooled_feature_maps, 0), 0)
 
 		return outputs
