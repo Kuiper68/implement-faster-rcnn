@@ -6,9 +6,9 @@
 # https://www.tensorflow.org/guide/keras/custom_layers_and_models
 
 import tensorflow as tf
+from custom.utils import number_of_cls
+from custom.utils import number_of_reg
 from custom.layers import ROIPooling
-
-number_of_cls, number_of_reg = 2, 4
 
 class BackBone(tf.keras.Model):
 	"""
@@ -26,8 +26,8 @@ class BackBone(tf.keras.Model):
 	- Image from which to extract feature maps
 
 	Returns)
-	1. pooled_feature_maps => 'tensorflow.python.framework.ops.EagerTensor'
-	- Region of feature map with pooling operation applied
+	1. feature_map => 'tensorflow.python.framework.ops.EagerTensor'
+	- Feature map extracted from image
 	"""
 
 	def __init__(self, input_shape,
