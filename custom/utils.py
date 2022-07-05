@@ -11,6 +11,8 @@ import pickle
 import random
 from glob import glob
 from time import time
+from ast import literal_eval
+from configparser import ConfigParser
 from xml.etree.ElementTree import parse
 import cv2
 from tqdm import tqdm
@@ -404,32 +406,93 @@ def load_pascal_voc_faster_rcnn_dataset(images_path,
 			ground_truth_bboxes_list,
 			ground_truth_labels_list,
 			number_of_objects,
-			number_of_features,
 			products_config)
 
 
-def save_products(products_config,
-				  products_file):
-	"""
-	Save variables producted
-
-	Arguments)
-	1. products_config => 'configparser.ConfigParser'
-	- Parser that save products generated during processing
-
-	2. products_file => 'str'
-	- Product filename('products.ini')
-	"""
-
-	with open(products_file, 'a') as f:
-		products_config.write(f)
-
-
-def save_train_dataset(train_dataset,
+def load_train_dataset(products_file,
 					   train_dataset_file):
 
-	with open(train_dataset_file, 'wb') as f:
-		pickle.dump(train_dataset, f, pickle.HIGHEST_PROTOCOL)
+	products_config = ConfigParser()
+	products_config.read(products_file)
+
+	number_of_objects = products_config.getint('variables',
+		'number_of_objects')
+
+	with open(train_dataset_file, 'rb') as f:
+		train_dataset = pickle.load(f)
+
+	return (train_dataset,
+			number_of_objects,
+			products_config)
+
+
+def make_cache(products_file,
+			   train_dataset_file,
+			   pool_size,
+			   images_path,
+			   metadata_path,
+			   anchor_size_per_feature,
+			   anchor_aspect_ratio_per_feature,
+			   number_of_anchors_per_feature,
+			   shorter_side_scale,
+			   image_input_size,
+			   feature_map_size):
+
+	def save_products(products_config,
+					  products_file):
+		"""
+		Save variables producted
+
+		Arguments)
+		1. products_config => 'configparser.ConfigParser'
+		- Parser that save products generated during processing
+
+		2. products_file => 'str'
+		- Product filename('products.ini')
+		"""
+
+		with open(products_file, 'a') as f:
+			products_config.write(f)
+
+
+	def save_train_dataset(train_dataset,
+						   train_dataset_file):
+
+		with open(train_dataset_file, 'wb') as f:
+			pickle.dump(train_dataset, f, pickle.HIGHEST_PROTOCOL)
+
+
+	if (os.path.isfile(products_file)):
+		os.remove(products_file)
+
+	if (os.path.isfile(train_dataset_file)):
+		os.remove(train_dataset_file)
+
+	products_config = ConfigParser()
+	products_config['variables'] = {}
+	products_config['variables']['number_of_anchors_per_feature'] = \
+		str(number_of_anchors_per_feature)
+	products_config['variables']['feature_map_size'] = str(feature_map_size)
+	products_config['variables']['pool_size'] = str(pool_size)
+
+	(images_list, object_dict, anchors_list, ground_truth_bboxes_list,
+		ground_truth_labels_list, number_of_objects, products_config) = \
+		 	load_pascal_voc_faster_rcnn_dataset(images_path, metadata_path,
+				anchor_size_per_feature, anchor_aspect_ratio_per_feature,
+				number_of_anchors_per_feature, shorter_side_scale,
+				image_input_size, feature_map_size, products_config)
+
+	train_dataset = {'images_list': images_list,
+		'anchors_list': anchors_list,
+		'ground_truth_bboxes_list': ground_truth_bboxes_list,
+		'ground_truth_labels_list': ground_truth_labels_list}
+
+	save_products(products_config, products_file)
+	save_train_dataset(train_dataset, train_dataset_file)
+
+	return (train_dataset,
+			number_of_objects,
+			products_config)
 
 
 def shuffle_list(*args):
@@ -440,31 +503,31 @@ def shuffle_list(*args):
 	return zip(*l)
 
 
+def convert_centered_to_square_and_split(centered_bboxes):
+
+	x, y, w, h = tf.split(centered_bboxes, 4, -1)
+
+	xmin = x - 0.5 * w
+	ymin = y - 0.5 * h
+	xmax = x + 0.5 * w
+	ymax = y + 0.5 * h
+
+	bboxes_coordinates = (xmin, ymin, xmax, ymax)
+
+	return bboxes_coordinates
+
+
 def get_iou_map(centered_bboxes_1,
 				centered_bboxes_2):
 	"""
 	!!Caution!!
 	"""
 
-	def convert_centered_to_coords_and_split(centered_bboxes):
+	def intersection_area_map(square_bboxes_1,
+							  square_bboxes_2):
 
-		x, y, w, h = tf.split(centered_bboxes, 4, -1)
-
-		xmin = x - 0.5 * w
-		ymin = y - 0.5 * h
-		xmax = x + 0.5 * w
-		ymax = y + 0.5 * h
-
-		bboxes_coordinates = (xmin, ymin, xmax, ymax)
-
-		return bboxes_coordinates
-
-
-	def intersection_area_map(bboxes_coordinates_1,
-							  bboxes_coordinates_2):
-
-		xmin_1, ymin_1, xmax_1, ymax_1 = bboxes_coordinates_1
-		xmin_2, ymin_2, xmax_2, ymax_2 = bboxes_coordinates_2
+		xmin_1, ymin_1, xmax_1, ymax_1 = square_bboxes_1
+		xmin_2, ymin_2, xmax_2, ymax_2 = square_bboxes_2
 
 		xmin_i = tf.maximum(xmin_1, tf.transpose(xmin_2, [0, 2, 1]))
 		ymin_i = tf.maximum(ymin_1, tf.transpose(ymin_2, [0, 2, 1]))
@@ -486,18 +549,16 @@ def get_iou_map(centered_bboxes_1,
 		return area_u
 
 
-	bboxes_coordinates_1 = convert_centered_to_coords_and_split(
-		centered_bboxes_1)
+	square_bboxes_1 = convert_centered_to_square_and_split(centered_bboxes_1)
 	x_1, y_1, w_1, h_1 = tf.split(centered_bboxes_1, number_of_reg, -1)
 
-	bboxes_coordinates_2 = convert_centered_to_coords_and_split(
-		centered_bboxes_2)
+	square_bboxes_2 = convert_centered_to_square_and_split(centered_bboxes_2)
 	x_2, y_2, w_2, h_2 = tf.split(centered_bboxes_2, number_of_reg, -1)
 
 	area_1 = tf.squeeze(w_1 * h_1, axis=-1)
 	area_2 = tf.squeeze(w_2 * h_2, axis=-1)
 
-	area_i = intersection_area_map(bboxes_coordinates_1, bboxes_coordinates_2)
+	area_i = intersection_area_map(square_bboxes_1, square_bboxes_2)
 	area_u = union_area_map(area_1, area_2, area_i)
 
 	iou_map = area_i / area_u
@@ -505,8 +566,8 @@ def get_iou_map(centered_bboxes_1,
 	return iou_map
 
 
-def regression_labels(max_iou_ground_truth_bboxes,
-					  current_bboxes):
+def centered_to_regression_labels(max_iou_ground_truth_bboxes,
+								  current_bboxes):
 
 	xy_g, wh_g = tf.split(max_iou_ground_truth_bboxes, 2, -1)
 	xy_c, wh_c = tf.split(current_bboxes, 2, -1)
@@ -515,6 +576,34 @@ def regression_labels(max_iou_ground_truth_bboxes,
 	reg_label = tf.concat([xy_reg, wh_reg], 2)
 
 	return reg_label
+
+
+def regression_to_centered_predict(regression_predict,
+								   current_bboxes):
+
+	xy_offset, wh_offset = tf.split(regression_predict, 2, -1)
+	xy_c, wh_c = tf.split(current_bboxes, 2, -1)
+	xy_p = xy_offset * wh_c + xy_c
+	wh_p = tf.math.exp(wh_offset) * wh_c
+	centered_bboxes_predict = tf.concat([xy_p, wh_p], 2)
+
+	return centered_bboxes_predict
+
+
+def print_step_message(step,
+					   steps,
+					   step_start,
+					   loss,
+					   progress_bar_length):
+
+	terminal_width, _ = os.get_terminal_size()
+	progress = int(progress_bar_length * (step + 1) / steps)
+	progress_bar = (progress * "●").ljust(progress_bar_length, "○")
+	step_runtime = time() - step_start
+	step_message = \
+		"\rtrain: %4d/%4d[%s] - multi_task_loss: %.4e - time: %.4fsec" \
+		% (step + 1, steps, progress_bar, loss, step_runtime)
+	print(step_message.ljust(terminal_width, " "), end="")
 
 
 def print_epoch_message(epoch_start,
@@ -539,26 +628,11 @@ def save_weights(epoch, save_cycle, *ckpt_managers):
 			ckpt_manager.save()
 
 
-def print_step_message(step,
-					   steps,
-					   step_start,
-					   loss,
-					   progress_bar_length):
-
-	terminal_width, _ = os.get_terminal_size()
-	progress = int(progress_bar_length * (step + 1) / steps)
-	progress_bar = (progress * "●").ljust(progress_bar_length, "○")
-	step_runtime = time() - step_start
-	step_message = \
-		"\rtrain: %4d/%4d[%s] - multi_task_loss: %.4e - time: %.4fsec" \
-		% (step + 1, steps, progress_bar, loss, step_runtime)
-	print(step_message.ljust(terminal_width, " "), end="")
-
-
 def train_rpn(train_dataset,
 			  products_config,
 			  epochs,
 			  train_valid_split_rate,
+			  valid_steps_max,
 			  backbone_model,
 			  proposal_model,
 			  backbone_trainable,
@@ -617,8 +691,8 @@ def train_rpn(train_dataset,
 
 			objectness = tf.cast(pos_mask, tf.float32)
 
-			reg_label = regression_labels(ground_truth_bboxes_close_to_anchors,
-				anchors)
+			reg_label = centered_to_regression_labels(
+				ground_truth_bboxes_close_to_anchors, anchors)
 
 			yield (image), (sample_indices, objectness, reg_label)
 
@@ -688,7 +762,7 @@ def train_rpn(train_dataset,
 	number_of_data = products_config.getint('variables', 'number_of_data')
 
 	train_steps = int(number_of_data * train_valid_split_rate)
-	valid_steps = 30
+	valid_steps = valid_steps_max
 	remain_steps = number_of_data - train_steps
 
 	images_list = train_dataset['images_list']
@@ -729,6 +803,267 @@ def train_rpn(train_dataset,
 			multi_task_loss = rpn_multi_task_loss(backbone_model,
 				proposal_model, image, sample_indices, objectness, reg_label,
 				sparse_categorical_cross_entropy, huber, rpn_loss_lambda, False)
+
+			valid_loss_list.append(multi_task_loss)
+
+			print_step_message(step, valid_steps, step_start, multi_task_loss,
+				progress_bar_length)
+
+		print_epoch_message(epoch_start, train_loss_list, valid_loss_list)
+		save_weights(epoch, save_cycle, *ckpt_managers)
+
+
+def train_fast_rcnn(train_dataset,
+					products_config,
+					epochs,
+					train_valid_split_rate,
+					valid_steps_max,
+					backbone_model,
+					proposal_model,
+					detection_model,
+					backbone_trainable,
+					sparse_categorical_cross_entropy,
+					huber,
+					fast_rcnn_loss_lambda,
+					stochastic_gradient_descent,
+					image_input_size,
+					number_of_proposals,
+					progress_bar_length,
+					save_cycle,
+					*ckpt_managers):
+
+	def fast_rcnn_data_generator(images_list,
+								 anchors_list,
+								 ground_truth_bboxes_list,
+								 ground_truth_labels_list):
+
+		(images_list, anchors_list, ground_truth_bboxes_list,
+			ground_truth_labels_list) = shuffle_list(images_list,
+				anchors_list, ground_truth_bboxes_list, ground_truth_labels_list)
+
+		for data in zip(images_list, anchors_list, ground_truth_bboxes_list,
+						ground_truth_labels_list):
+			image = tf.expand_dims(data[0], 0)
+			anchors = tf.expand_dims(data[1], 0)
+			ground_truth_bboxes = tf.expand_dims(data[2], 0)
+			ground_truth_labels = tf.expand_dims(data[3], 0)
+
+			yield (image, anchors), (ground_truth_bboxes, ground_truth_labels)
+
+
+	def train_fast_rcnn_data_process(reg_pred,
+									 anchors,
+									 ground_truth_bboxes,
+									 ground_truth_labels,
+									 image_input_size,
+									 feature_map_size,
+									 number_of_proposals,
+									 number_of_objects):
+
+		height, width, _ = image_input_size
+		f_height, f_width, _ = feature_map_size
+		projection_constant = tf.constant([[[f_width / width, f_height / height,
+			f_width / width, f_height / height]]])
+
+		centered_bboxes_pred = regression_to_centered_predict(reg_pred, anchors)
+		square_bboxes_pred = tf.concat(convert_centered_to_square_and_split(
+			centered_bboxes_pred), -1)
+
+		mask = tf.reduce_all(tf.concat([tf.greater_equal(square_bboxes_pred, 0.),
+			tf.expand_dims(tf.less(square_bboxes_pred[:, :, 2],
+				float(width)), -1),
+			tf.expand_dims(tf.less(square_bboxes_pred[:, :, 3],
+				float(height)), -1),
+			tf.expand_dims(tf.less(square_bboxes_pred[:, :, 0],
+				square_bboxes_pred[:, :, 2]), -1),
+			tf.expand_dims(tf.less(square_bboxes_pred[:, :, 1],
+				square_bboxes_pred[:, :, 3]), -1)], -1), -1)
+
+		filtered_centered_bboxes_pred = tf.expand_dims(tf.boolean_mask(
+			centered_bboxes_pred, mask), 0)
+		filtered_squares_bboxes_pred = tf.expand_dims(tf.boolean_mask(
+			square_bboxes_pred, mask), 0)
+
+		iou_map = get_iou_map(filtered_centered_bboxes_pred,
+			ground_truth_bboxes)
+		max_iou_indices = tf.argmax(iou_map, axis=-1)
+		max_iou_map = tf.reduce_max(iou_map, axis=-1)
+
+		ground_truth_bboxes_close_to_filtered_bboxes_pred = tf.gather(tf.squeeze(
+			ground_truth_bboxes, axis=0), max_iou_indices)
+		ground_truth_labels_close_to_filtered_bboxes_pred = tf.gather(tf.squeeze(
+			ground_truth_labels, axis=0), max_iou_indices)
+
+		pos_mask = tf.greater_equal(max_iou_map, 0.5)
+		pos_num = tf.minimum(tf.math.count_nonzero(pos_mask),
+			int(number_of_proposals * 0.25))
+		pos_indices = tf.reshape(tf.random.shuffle(tf.where(tf.squeeze(
+			pos_mask)))[:pos_num], [1, pos_num])
+
+		neg_mask = tf.less(max_iou_map, 0.5)
+		neg_num = number_of_proposals - pos_num
+		neg_indices = tf.reshape(tf.random.shuffle(tf.where(tf.squeeze(
+			neg_mask)))[:neg_num], [1, neg_num])
+
+		sample_indices = tf.expand_dims(tf.random.shuffle(tf.squeeze(tf.concat(
+			[pos_indices, neg_indices], axis=-1))), 0)
+
+		rois_temp = tf.multiply(filtered_squares_bboxes_pred, projection_constant)
+		rois = tf.gather(tf.squeeze(rois_temp), sample_indices)
+
+		fast_rcnn_objectness_temp = tf.cast(pos_mask, tf.float32)
+		fast_rcnn_objectness = tf.gather(tf.squeeze(fast_rcnn_objectness_temp),
+			sample_indices)
+
+		fast_rcnn_cls_labels_temp = tf.where(pos_mask,
+			ground_truth_labels_close_to_filtered_bboxes_pred,
+			tf.zeros_like(ground_truth_labels_close_to_filtered_bboxes_pred))
+		fast_rcnn_cls_labels = tf.gather(tf.squeeze(fast_rcnn_cls_labels_temp),
+			sample_indices)
+
+		fast_rcnn_reg_labels_tile = tf.gather(tf.squeeze(
+			centered_to_regression_labels(
+				ground_truth_bboxes_close_to_filtered_bboxes_pred,
+				filtered_centered_bboxes_pred)), sample_indices)
+		fast_rcnn_reg_labels = tf.tile(fast_rcnn_reg_labels_tile,
+			[1, 1, number_of_objects])
+
+		return (tf.stop_gradient(rois),
+				tf.stop_gradient(fast_rcnn_objectness),
+				tf.stop_gradient(fast_rcnn_cls_labels),
+				tf.stop_gradient(fast_rcnn_reg_labels))
+
+
+	def fast_rcnn_multi_task_loss(backbone_model,
+								  proposal_model,
+								  detection_model,
+								  image,
+								  anchors,
+								  ground_truth_bboxes,
+								  ground_truth_labels,
+								  image_input_size,
+								  feature_map_size,
+								  number_of_proposals,
+								  number_of_objects,
+								  sparse_categorical_cross_entropy,
+								  huber,
+								  fast_rcnn_loss_lambda,
+								  training):
+
+		feature_map = backbone_model(image, training=training)
+		_, reg_pred = proposal_model(feature_map, training=False)
+
+		(rois, fast_rcnn_objectness, fast_rcnn_cls_labels,
+			fast_rcnn_reg_labels) = train_fast_rcnn_data_process(reg_pred,
+				anchors, ground_truth_bboxes, ground_truth_labels,
+				image_input_size, feature_map_size, number_of_proposals,
+				number_of_objects)
+
+		fast_rcnn_cls_pred, fast_rcnn_reg_pred = detection_model(
+			[feature_map, rois], training=training)
+
+		fast_rcnn_cls_loss = sparse_categorical_cross_entropy(
+			fast_rcnn_cls_labels, fast_rcnn_cls_pred)
+		fast_rcnn_reg_loss = fast_rcnn_objectness * huber(
+			fast_rcnn_reg_labels, fast_rcnn_reg_pred)
+		multi_task_loss = (tf.reduce_mean(fast_rcnn_cls_loss)
+			+ fast_rcnn_loss_lambda
+			* tf.reduce_mean(fast_rcnn_reg_loss))
+
+		return multi_task_loss
+
+
+	def train_step_fast_rcnn(backbone_model,
+							 proposal_model,
+							 detection_model,
+							 image,
+							 anchors,
+							 ground_truth_bboxes,
+							 ground_truth_labels,
+							 image_input_size,
+							 feature_map_size,
+							 number_of_proposals,
+							 number_of_objects,
+							 sparse_categorical_cross_entropy,
+							 huber,
+							 fast_rcnn_loss_lambda,
+							 stochastic_gradient_descent):
+
+		with tf.GradientTape() as tape:
+			tape.watch(image)
+			multi_task_loss = fast_rcnn_multi_task_loss(backbone_model,
+				proposal_model, detection_model, image, anchors,
+				ground_truth_bboxes, ground_truth_labels, image_input_size,
+				feature_map_size, number_of_proposals, number_of_objects,
+				sparse_categorical_cross_entropy, huber, fast_rcnn_loss_lambda,
+				True)
+
+		fast_rcnn_trainable_weights = (backbone_model.trainable_weights
+			+ detection_model.trainable_weights)
+		gradient_of_multi_task_loss = tape.gradient(multi_task_loss,
+			fast_rcnn_trainable_weights)
+		stochastic_gradient_descent.apply_gradients(
+			zip(gradient_of_multi_task_loss, fast_rcnn_trainable_weights))
+
+		return multi_task_loss
+
+
+	backbone_model.trainable = backbone_trainable
+	proposal_model.trainable = False
+	detection_model.trainable = True
+
+	number_of_data = products_config.getint('variables', 'number_of_data')
+	number_of_objects = products_config.getint('variables', 'number_of_objects')
+	feature_map_size = literal_eval(products_config.get('variables',
+		'feature_map_size'))
+	train_steps = int(number_of_data * train_valid_split_rate)
+	valid_steps = valid_steps_max
+	remain_steps = number_of_data - train_steps
+
+	images_list = train_dataset['images_list']
+	anchors_list = train_dataset['anchors_list']
+	ground_truth_bboxes_list = train_dataset['ground_truth_bboxes_list']
+	ground_truth_labels_list = train_dataset['ground_truth_labels_list']
+
+	if (remain_steps < valid_steps):
+		valid_steps = remain_steps
+
+	for epoch in range(epochs):
+		print("Epoch: %3d/%3d" % (epoch + 1, epochs))
+		epoch_start = time()
+		train_loss_list = []
+		valid_loss_list = []
+		fast_rcnn_dataset = fast_rcnn_data_generator(images_list, anchors_list,
+			ground_truth_bboxes_list, ground_truth_labels_list)
+
+		for step in range(train_steps):
+			step_start = time()
+			(image, anchors), (ground_truth_bboxes, ground_truth_labels) = \
+				next(fast_rcnn_dataset)
+
+			multi_task_loss = train_step_fast_rcnn(backbone_model,
+				proposal_model, detection_model, image, anchors,
+				ground_truth_bboxes, ground_truth_labels, image_input_size,
+				feature_map_size, number_of_proposals, number_of_objects,
+				sparse_categorical_cross_entropy, huber, fast_rcnn_loss_lambda,
+				stochastic_gradient_descent)
+
+			train_loss_list.append(multi_task_loss)
+
+			print_step_message(step, train_steps, step_start, multi_task_loss,
+				progress_bar_length)
+
+		for step in range(valid_steps):
+			step_start = time()
+			(image, anchors), (ground_truth_bboxes, ground_truth_labels) = \
+				next(fast_rcnn_dataset)
+
+			multi_task_loss = fast_rcnn_multi_task_loss(backbone_model,
+				proposal_model, detection_model, image, anchors,
+				ground_truth_bboxes, ground_truth_labels, image_input_size,
+				feature_map_size, number_of_proposals, number_of_objects,
+				sparse_categorical_cross_entropy, huber, fast_rcnn_loss_lambda,
+				False)
 
 			valid_loss_list.append(multi_task_loss)
 
