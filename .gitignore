@@ -2,3 +2,4 @@ VOCdevkit/
 custom/__pycache__/
 products.ini
 checkpoint/
+train_dataset.pickle
