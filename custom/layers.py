@@ -10,81 +10,81 @@
 import tensorflow as tf
 
 class ROIPooling(tf.keras.layers.Layer):
-	"""
-	Function that wrap and pool a region of feature map
+    """
+    Function that wrap and pool a region of feature map
 
-	!!Caution!! => Batch process operation not applied yet...
+    !!Caution!! => Batch process operation not applied yet...
 
-	Init Data)
-	1. pool_size
-	- Fixed size of feature map to return
+    Init Data)
+    1. pool_size
+    - Fixed size of feature map to return
 
-	2. number_of_proposals
-	- Number of regions to be extracted
+    2. number_of_proposals
+    - Number of regions to be extracted
 
-	Arguments)
-	1. feature_map
-	- Target of roi pooling operation
+    Arguments)
+    1. feature_map
+    - Target of roi pooling operation
 
-	2. proposals
-	- Proposed regions in feature_map
+    2. proposals
+    - Proposed regions in feature_map
 
-	Returns)
-	1. pooled_feature_maps
-	- Region of feature map with pooling operation applied
-	"""
+    Returns)
+    1. pooled_feature_maps
+    - Region of feature map with pooling operation applied
+    """
 
-	def __init__(self, pool_size,
-					   number_of_proposals,
-					   **kwargs):
+    def __init__(self, pool_size,
+                       number_of_proposals,
+                       **kwargs):
 
-		self.pool_size = pool_size
-		self.number_of_proposals = number_of_proposals
+        self.pool_size = pool_size
+        self.number_of_proposals = number_of_proposals
 
-		super(ROIPooling, self).__init__(**kwargs)
-
-
-	def get_config(self):
-
-		config = super().get_config()
-		config.update({
-			"pool_size": self.pool_size,
-			"number_of_proposals": self.number_of_proposals,
-		})
-
-		return config
+        super(ROIPooling, self).__init__(**kwargs)
 
 
-	def compute_output_shape(self, input_shape):
+    def get_config(self):
 
-		return ((None, self.number_of_proposals) + self.pool_size
-				+ (input_shape[0][3]))
+        config = super().get_config()
+        config.update({
+            "pool_size": self.pool_size,
+            "number_of_proposals": self.number_of_proposals,
+        })
+
+        return config
 
 
-	def call(self, x_in):
+    def compute_output_shape(self, input_shape):
 
-		assert (len(x_in) == 2)
+        return ((None, self.number_of_proposals) + self.pool_size
+                + (input_shape[0][3]))
 
-		feature_map = x_in[0]
-		proposals = x_in[1]
-		input_shape = feature_map.shape
 
-		pooled_feature_maps = []
+    def call(self, x_in):
 
-		for proposal_index in range(self.number_of_proposals):
-			xmin = tf.cast(tf.math.floor(proposals[0, proposal_index, 0]),
-				tf.int32)
-			ymin = tf.cast(tf.math.floor(proposals[0, proposal_index, 1]),
-				tf.int32)
-			xmax = tf.cast(tf.math.floor(proposals[0, proposal_index, 2]),
-				tf.int32)
-			ymax = tf.cast(tf.math.floor(proposals[0, proposal_index, 3]),
-				tf.int32)
+        assert (len(x_in) == 2)
 
-			pooled_feature_maps.append(
-				tf.image.resize(feature_map[:, ymin:ymax, xmin:xmax, :],
-				self.pool_size, method='nearest'))
+        feature_map = x_in[0]
+        proposals = x_in[1]
+        input_shape = feature_map.shape
 
-		outputs = tf.expand_dims(tf.concat(pooled_feature_maps, 0), 0)
+        pooled_feature_maps = []
 
-		return outputs
+        for proposal_index in range(self.number_of_proposals):
+            xmin = tf.cast(tf.math.floor(proposals[0, proposal_index, 0]),
+                tf.int32)
+            ymin = tf.cast(tf.math.floor(proposals[0, proposal_index, 1]),
+                tf.int32)
+            xmax = tf.cast(tf.math.ceil(proposals[0, proposal_index, 2]),
+                tf.int32)
+            ymax = tf.cast(tf.math.ceil(proposals[0, proposal_index, 3]),
+                tf.int32)
+
+            pooled_feature_maps.append(
+                tf.image.resize(feature_map[:, ymin:ymax, xmin:xmax, :],
+                self.pool_size, method='nearest'))
+
+        outputs = tf.expand_dims(tf.concat(pooled_feature_maps, 0), 0)
+
+        return outputs
