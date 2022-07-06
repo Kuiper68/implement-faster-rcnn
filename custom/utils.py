@@ -4,6 +4,7 @@
 
 # Reference URL
 # https://www.tensorflow.org/guide/checkpoint
+# https://www.tensorflow.org/guide/autodiff
 
 import os
 import math
@@ -63,7 +64,7 @@ def load_network_manager(model_class,
 	model = model_class(**kwargs)
 
 	if os.path.exists(ckpt_path):
-		latest = tf.train.lastest_checkpoint(ckpt_path)
+		latest = tf.train.latest_checkpoint(ckpt_path)
 		model.load_weights(latest)
 		print("%s Restored from %s" % (model_class.__name__, latest))
 
@@ -163,6 +164,7 @@ def generate_anchors(image_shape,
 	- Fix shorter side scale when generate anchors
 
 	8. number_of_features => 'int'
+	- Number of features in a feature map
 
 	Returns)
 	1. anchors => 'tensorflow.python.framework.ops.EagerTensor'
@@ -273,9 +275,7 @@ def load_pascal_voc_faster_rcnn_dataset(images_path,
 	6. number_of_objects => 'int'
 	- Number of objects to predict
 
-	7. number_of_features => 'int'
-
-	8. products_config => 'configparser.ConfigParser'
+	7. products_config => 'configparser.ConfigParser'
 	- Parser that save products generated during processing
 	"""
 
@@ -411,6 +411,26 @@ def load_pascal_voc_faster_rcnn_dataset(images_path,
 
 def load_train_dataset(products_file,
 					   train_dataset_file):
+	"""
+	Load data from file saved
+
+	Arguments)
+	1. products_file => 'str'
+	- Product filename('products.ini')
+
+	2. train_dataset_file => 'str'
+	- Dataset filename('train_dataset.pickle')
+
+	Returns)
+	1. train_dataset => 'dict'
+	- Dataset for models training
+
+	2. number_of_objects => 'int'
+	- Number of objects to predict
+
+	3. products_config => 'configparser.ConfigParser'
+	- Parser that save products generated during processing
+	"""
 
 	products_config = ConfigParser()
 	products_config.read(products_file)
@@ -437,6 +457,53 @@ def make_cache(products_file,
 			   shorter_side_scale,
 			   image_input_size,
 			   feature_map_size):
+	"""
+	Make cache file for loading time save
+
+	Arguments)
+	1. products_file => 'str'
+	- Product filename('products.ini')
+
+	2. train_dataset_file => 'str'
+	- Dataset filename('train_dataset.pickle')
+
+	3. pool_size => 'tuple'
+	- Return size of pooled feature map after operate ROIPooling
+
+	4. images_path => 'str'
+	- image file path in dataset
+
+	5. metadata_path => 'str'
+	- *.xml file path containing metadata
+
+	6. anchor_size_per_feature => 'list'
+	- Anchor area defined
+
+	7. anchor_aspect_ratio_per_feature => 'list'
+	- Anchor width-height ratio defined
+
+	8. number_of_anchors_per_feature => 'int'
+	- Number of anchors corresponding to a feature
+
+	9. shorter_side_scale => 'int'
+	- Fix shorter side scale when generate anchors
+
+	10. image_input_size => 'tuple'
+	- Fixed shape when input image to model
+
+	11. feature_map_size => 'tuple'
+	- Extracted feature map shape from image by backbone
+
+	Returns)
+	1. train_dataset => 'dict'
+	- Dataset for models training
+
+	2. number_of_objects => 'int'
+	- Number of objects to predict
+
+	3. products_config => 'configparser.ConfigParser'
+	- Parser that save products generated during processing
+	"""
 
 	def save_products(products_config,
 					  products_file):
@@ -457,6 +524,16 @@ def make_cache(products_file,
 
 	def save_train_dataset(train_dataset,
 						   train_dataset_file):
+		"""
+		Save train dataset loaded
+
+		Arguments)
+		1. train_dataset => 'dict'
+		- Dataset for models training
+
+		2. train_dataset_file => 'str'
+		- Dataset filename('train_dataset.pickle')
+		"""
 
 		with open(train_dataset_file, 'wb') as f:
 			pickle.dump(train_dataset, f, pickle.HIGHEST_PROTOCOL)
@@ -496,6 +573,17 @@ def make_cache(products_file,
 
 
 def shuffle_list(*args):
+	"""
+	Apply the same shuffle to all list arguments
+
+	Arguments)
+	1. *args
+	- Lists with same length
+
+	Returns)
+	2. zip(*l)
+	- Shuffled lists
+	"""
 
 	l = list(zip(*args))
 	random.shuffle(l)
@@ -504,6 +592,17 @@ def shuffle_list(*args):
 
 
 def convert_centered_to_square_and_split(centered_bboxes):
+	"""
+	Convert and split centered coordinates to square coordinates
+
+	Arguments)
+	1. centered_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+	- Coordinates defined (x, y, w, h) , where x, y represent the centered
+
+	Returns)
+	1. bboxes_coordinates => 'tuple'
+	- Returns the coordinates defined as a tensor in tuple.
+	"""
 
 	x, y, w, h = tf.split(centered_bboxes, 4, -1)
 
@@ -520,11 +619,40 @@ def convert_centered_to_square_and_split(centered_bboxes):
 def get_iou_map(centered_bboxes_1,
 				centered_bboxes_2):
 	"""
-	!!Caution!!
+	Operate iou map from two centered bounding boxes (example: anchors and
+	ground truth bboxes)
+
+	!!Caution!! => Batch process operation not applied yet...
+
+	Arguments)
+	1. centered_bboxes_1 => 'tensorflow.python.framework.ops.EagerTensor'
+	- Centered bounding boxes (Use current bounding boxes you have)
+
+	2. centered_bboxes_2 => 'tensorflow.python.framework.ops.EagerTensor'
+	- Centered bounding boxes (Use ground truth bounding boxes)
+
+	Returns)
+	1. iou_map => 'tensorflow.python.framework.ops.EagerTensor'
+	- IoU map (matrix) between two bounding boxes
 	"""
 
 	def intersection_area_map(square_bboxes_1,
 							  square_bboxes_2):
+		"""
+		Operate intersection area map from two square bounding boxes (example:
+		anchors and ground truth bboxes)
+
+		Arguments)
+		1. square_bboxes_1 => 'tensorflow.python.framework.ops.EagerTensor'
+		- Square bounding boxes (Use current bounding boxes you have)
+
+		2. square_bboxes_2 => 'tensorflow.python.framework.ops.EagerTensor'
+		- Square bounding boxes (Use ground truth bounding boxes)
+
+		Returns)
+		1. area_i => 'tensorflow.python.framework.ops.EagerTensor'
+		- Intersection area map (matrix) between two bounding boxes
+		"""
 
 		xmin_1, ymin_1, xmax_1, ymax_1 = square_bboxes_1
 		xmin_2, ymin_2, xmax_2, ymax_2 = square_bboxes_2
@@ -542,6 +670,24 @@ def get_iou_map(centered_bboxes_1,
 	def union_area_map(area_1,
 					   area_2,
 					   area_i):
+		"""
+		Operate union area map from two square bounding boxes (example: anchors
+		and ground truth bboxes)
+
+		Arguments)
+		1. area_1 => 'tensorflow.python.framework.ops.EagerTensor'
+		- Bounding boxes (Current bounding boxes) area map
+
+		2. area_2 => 'tensorflow.python.framework.ops.EagerTensor'
+		- Bounding boxes (Ground truth bounding boxes) area map
+
+		3. area_i => 'tensorflow.python.framework.ops.EagerTensor'
+		- Intersection area map between two bounding boxes
+
+		Returns)
+		1. area_u => 'tensorflow.python.framework.ops.EagerTensor'
+		- Union area map (matrix) between two bounding boxes
+		"""
 
 		area_u =  (tf.expand_dims(area_1, -1) + tf.expand_dims(area_2, 1)
 			- area_i)
@@ -568,6 +714,22 @@ def get_iou_map(centered_bboxes_1,
 
 def centered_to_regression_labels(max_iou_ground_truth_bboxes,
 								  current_bboxes):
+	"""
+	Encoding bounding boxes for operating regression loss
+
+	Arguments)
+	1. max_iou_ground_truth_bboxes => 'tensorflow.python.framework.ops
+									   .EagerTensor'
+	- Label IoU max ground truth bounding boxes
+
+	2. current_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+	- Bounding boxes you have (example: anchors, decoded regression predict from
+	  region proposal network)
+
+	Returns)
+	1. reg_label => 'tensorflow.python.framework.ops.EagerTensor'
+	- Regression values of bounding boxes
+	"""
 
 	xy_g, wh_g = tf.split(max_iou_ground_truth_bboxes, 2, -1)
 	xy_c, wh_c = tf.split(current_bboxes, 2, -1)
@@ -580,6 +742,20 @@ def centered_to_regression_labels(max_iou_ground_truth_bboxes,
 
 def regression_to_centered_predict(regression_predict,
 								   current_bboxes):
+	"""
+	Decoding bounding boxes
+
+	Arguments)
+	1. regression_predict => 'tensorflow.python.framework.ops.EagerTensor'
+	- Regression bounding boxes from model (example: region proposal network)
+
+	2. current_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+	- Bounding boxes you have (example: anchors, decoded regression predict from
+	  region proposal network)
+
+	Returns)
+	1. centered_bboxes_predict => 'tensorflow.python.framework.ops.EagerTensor'
+	"""
 
 	xy_offset, wh_offset = tf.split(regression_predict, 2, -1)
 	xy_c, wh_c = tf.split(current_bboxes, 2, -1)
@@ -595,6 +771,25 @@ def print_step_message(step,
 					   step_start,
 					   loss,
 					   progress_bar_length):
+	"""
+	Print message during a step
+
+	Arguments)
+	1. step => 'int'
+	- Current step in epoch
+
+	2. steps => 'int'
+	- Total step in epoch
+
+	3. step_start => 'float'
+	- Step start time
+
+	4. loss => 'tensorflow.python.framework.ops.EagerTensor'
+	- Loss value calculated
+
+	5. progress_bar_length => 'int'
+	- Length when Visualize progress bar
+	"""
 
 	terminal_width, _ = os.get_terminal_size()
 	progress = int(progress_bar_length * (step + 1) / steps)
@@ -609,6 +804,19 @@ def print_step_message(step,
 def print_epoch_message(epoch_start,
 						train_loss_list,
 						valid_loss_list):
+	"""
+	Print message during an epoch
+
+	Arguments)
+	1. epoch_start => 'float'
+	- Epoch start time
+
+	2. train_loss_list => 'list'
+	- List of train loss values
+
+	3. valid_loss_list => 'list'
+	- List of validation loss values
+	"""
 
 	terminal_width, _ = os.get_terminal_size()
 	epoch_runtime = time() - epoch_start
@@ -620,6 +828,19 @@ def print_epoch_message(epoch_start,
 
 
 def save_weights(epoch, save_cycle, *ckpt_managers):
+	"""
+	Save model's weights per cycle epoch
+
+	Arguments)
+	1. epoch => 'int'
+	- Current epoch
+
+	2. save_cycle => 'int'
+	- Cycle that save model
+
+	3. *ckpt_managers
+	- Checkpoint managers of models
+	"""
 
 	if ((epoch % save_cycle) == (save_cycle - 1)):
 		print("Weights Saved!!")
@@ -644,6 +865,60 @@ def train_rpn(train_dataset,
 			  progress_bar_length,
 			  save_cycle,
 			  *ckpt_managers):
+	"""
+	Train region proposal network
+
+	Arguments)
+	1. train_dataset => 'dict'
+	- Dataset for models training
+
+	2. products_config => 'configparser.ConfigParser'
+	- Parser that save products generated during processing
+
+	3. epochs => 'int'
+	- Total epochs when training
+
+	4. train_valid_split_rate => 'float'
+	- Split rate between train and validation of dataset when training
+
+	5. valid_steps_max => 'int'
+	- Max of validation dataset when validate during training
+
+	6. backbone_model => 'custom.models.BackBone'
+	- Feature extract model for image
+
+	7. proposal_model => 'custom.models.Proposal'
+	- Region proposal using feature map
+
+	8. backbone_trainable => 'bool'
+	- Whether to train the backbone network
+
+	9. sparse_categorical_cross_entropy => 'keras.losses
+											.SparseCategoricalCrossentropy'
+	- Classification loss function
+
+	10. huber => 'keras.losses.Huber'
+	- Regression loss function
+
+	11. rpn_loss_lambda => 'int'
+	- Balancing parameter when calculate multi task loss between classification
+	  loss and regression loss
+
+	12. stochastic_gradient_descent => 'keras.optimizer_v2.gradient_descent.SGD'
+	- Optimize function
+
+	13. number_of_sampled_region => 'int'
+	- Total sampling number of region for classification training
+
+	14. progress_bar_length => 'int'
+	- Length when Visualize progress bar
+
+	15. save_cycle => 'int'
+	- Cycle that save model
+
+	16. *ckpt_managers
+	- Checkpoint managers of models
+	"""
 
 	def rpn_data_generator(images_list,
 						   anchors_list,
@@ -651,6 +926,42 @@ def train_rpn(train_dataset,
 						   number_of_anchors_per_feature,
 						   number_of_features,
 						   number_of_sampled_region):
+		"""
+		Data generator for region proposal training
+
+		Arguments)
+		1. images_list => 'list'
+		- Images list parsed from dataset
+
+		2. anchors_list => 'list'
+		- Anchors list generated from images list
+
+		3. ground_truth_bboxes_list => 'list'
+		- Ground truth bounding box list for all images list
+
+		4. number_of_anchors_per_feature => 'int'
+		- Number of anchors corresponding to a feature
+
+		5. number_of_features => 'int'
+		- Number of features in a feature map
+
+		6. number_of_sampled_region => 'int'
+		- Total sampling number of region for classification training
+
+		Yields)
+		x.1. image => 'tensorflow.python.framework.ops.EagerTensor'
+		- Image to use for train step
+
+		y.1. sample_indices => 'tensorflow.python.framework.ops.EagerTensor'
+		- Indices for sampling data
+
+		y.2. objectness => 'tensorflow.python.framework.ops.EagerTensor'
+		- Presence or not of an object
+
+		y.3. reg_label => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth bounding boxes regression values for calculating
+		  regression loss
+		"""
 
 		(images_list, anchors_list, ground_truth_bboxes_list) = \
 			shuffle_list(images_list, anchors_list, ground_truth_bboxes_list)
@@ -707,6 +1018,47 @@ def train_rpn(train_dataset,
 							huber,
 							rpn_loss_lambda,
 							training):
+		"""
+		Operate multi task loss for region proposal network
+
+		Arguments)
+		1. backbone_model => 'custom.models.BackBone'
+		- Feature extract model for image
+
+		2. proposal_model => 'custom.models.Proposal'
+		- Region proposal using feature map
+
+		3. image => 'tensorflow.python.framework.ops.EagerTensor'
+		- Image for extracting feature
+
+		4. sample_indices => 'tensorflow.python.framework.ops.EagerTensor'
+		- Indices for sampling data
+
+		5. objectness => 'tensorflow.python.framework.ops.EagerTensor'
+		- Presence or not of an object
+
+		6. reg_label => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth bounding boxes regression values for calculating
+		  regression loss
+
+		7. sparse_categorical_cross_entropy => 'keras.losses
+												.SparseCategoricalCrossentropy'
+		- Classification loss function
+
+		8. huber => 'keras.losses.Huber'
+		- Regression loss function
+
+		9. rpn_loss_lambda => 'int'
+		- Balancing parameter when calculate multi task loss between classification
+		  loss and regression loss
+
+		10. training => 'bool'
+		- Train model or not
+
+		Returns)
+		1. multi_task_loss => 'tensorflow.python.framework.ops.EagerTensor'
+		- Multi task loss define as (cls-loss + lambda * reg-loss)
+		"""
 
 		feature_map = backbone_model(image, training=training)
 		cls_pred, reg_pred = proposal_model(feature_map, training=training)
@@ -735,6 +1087,48 @@ def train_rpn(train_dataset,
 					   huber,
 					   rpn_loss_lambda,
 					   stochastic_gradient_descent):
+		"""
+		Calculate loss and update weights of region proposal network
+
+		Arguments)
+		1. backbone_model => 'custom.models.BackBone'
+		- Feature extract model for image
+
+		2. proposal_model => 'custom.models.Proposal'
+		- Region proposal using feature map
+
+		3. image => 'tensorflow.python.framework.ops.EagerTensor'
+		- Image for extracting feature
+
+		4. sample_indices => 'tensorflow.python.framework.ops.EagerTensor'
+		- Indices for sampling data
+
+		5. objectness => 'tensorflow.python.framework.ops.EagerTensor'
+		- Presence or not of an object
+
+		6. reg_label => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth bounding boxes regression values for calculating
+		  regression loss
+
+		7. sparse_categorical_cross_entropy => 'keras.losses
+												.SparseCategoricalCrossentropy'
+		- Classification loss function
+
+		8. huber => 'keras.losses.Huber'
+		- Regression loss function
+
+		9. rpn_loss_lambda => 'int'
+		- Balancing parameter when calculate multi task loss between
+		  classification loss and regression loss
+
+		10. stochastic_gradient_descent => 'keras.optimizer_v2.gradient_descent
+											.SGD'
+		- Optimize function
+
+		Returns)
+		1. multi_task_loss => 'tensorflow.python.framework.ops.EagerTensor'
+		- Multi task loss define as (cls-loss + lambda * reg-loss)
+		"""
 
 		with tf.GradientTape() as tape:
 			tape.watch(image)
@@ -831,11 +1225,100 @@ def train_fast_rcnn(train_dataset,
 					progress_bar_length,
 					save_cycle,
 					*ckpt_managers):
+	"""
+	Train fast rcnn
+
+	Arguments)
+	1. train_dataset => 'dict'
+	- Dataset for models training
+
+	2. products_config => 'configparser.ConfigParser'
+	- Parser that save products generated during processing
+
+	3. epochs => 'int'
+	- Total epochs when training
+
+	4. train_valid_split_rate => 'float'
+	- Split rate between train and validation of dataset when training
+
+	5. valid_steps_max => 'int'
+	- Max of validation dataset when validate during training
+
+	6. backbone_model => 'custom.models.BackBone'
+	- Feature extract model for image
+
+	7. proposal_model => 'custom.models.Proposal'
+	- Region proposal using feature map
+
+	8. detection_model => 'custom.models.Detection'
+	- Detection model
+
+	9. backbone_trainable => 'bool'
+	- Whether to train the backbone network
+
+	10. sparse_categorical_cross_entropy => 'keras.losses
+											 .SparseCategoricalCrossentropy'
+	- Classification loss function
+
+	11. huber => 'keras.losses.Huber'
+	- Regression loss function
+
+	12. fast_rcnn_loss_lambda => 'int'
+	- Balancing parameter when calculate multi task loss between classification
+	  loss and regression loss
+
+	13. stochastic_gradient_descent => 'keras.optimizer_v2.gradient_descent.SGD'
+	- Optimize function
+
+	14. image_input_size => 'tuple'
+	- Fixed shape when input image to model
+
+	15. number_of_proposals => 'int'
+	- Number of output in fast rcnn
+
+	16. progress_bar_length => 'int'
+	- Length when Visualize progress bar
+
+	17. save_cycle => 'int'
+	- Cycle that save model
+
+	18. *ckpt_managers
+	- Checkpoint managers of models
+	"""
 
 	def fast_rcnn_data_generator(images_list,
 								 anchors_list,
 								 ground_truth_bboxes_list,
 								 ground_truth_labels_list):
+		"""
+		Data generator for fast rcnn training
+
+		Arguments)
+		1. images_list => 'list'
+		- Images list parsed from dataset
+
+		2. anchors_list => 'list'
+		- Anchors list generated from images list
+
+		3. ground_truth_bboxes_list => 'list'
+		- Ground truth bounding box list for all images list
+
+		4. ground_truth_labels_list => 'list'
+		- Ground truth object labels list for all images list
+
+		Yields)
+		x.1. image => 'tensorflow.python.framework.ops.EagerTensor'
+		- Image to use for train step
+
+		x.2. anchors => 'tensorflow.python.framework.ops.EagerTensor'
+		- Generated anchors in input image
+
+		y.1. ground_truth_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth bounding boxes in an image
+
+		y.2. ground_truth_labels => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth labels in an image
+		"""
 
 		(images_list, anchors_list, ground_truth_bboxes_list,
 			ground_truth_labels_list) = shuffle_list(images_list,
@@ -859,6 +1342,50 @@ def train_fast_rcnn(train_dataset,
 									 feature_map_size,
 									 number_of_proposals,
 									 number_of_objects):
+		"""
+		Get variables for calculating loss
+		Apply stop gradient for save memory and prevent useless calculations
+
+		Arguments)
+		1. reg_pred => 'tensorflow.python.framework.ops.EagerTensor'
+		- Regression bounding boxes from model
+
+		2. anchors => 'tensorflow.python.framework.ops.EagerTensor'
+		- Generated anchors in input image
+
+		3. ground_truth_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth bounding boxes in an image
+
+		4. ground_truth_labels => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth labels in an image
+
+		5. image_input_size => 'tuple'
+		- Fixed shape when input image to model
+
+		6. feature_map_size => 'tuple'
+		- Extracted feature map shape from image by backbone
+
+		7. number_of_proposals => 'int'
+		- Number of output in fast rcnn
+
+		8. number_of_objects => 'int'
+		- Number of objects to predict
+
+		Returns)
+		1. rois => 'tensorflow.python.framework.ops.EagerTensor'
+		- Region of intersection on feature map for roi pooling
+
+		2. fast_rcnn_objectness => 'tensorflow.python.framework.ops.EagerTensor'
+		- Presence or not of an object
+
+		3. fast_rcnn_cls_labels => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth bounding boxes classification values for calculating
+		  classification loss
+
+		4. fast_rcnn_reg_labels => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth bounding boxes regression values for calculating
+		  regression loss
+		"""
 
 		height, width, _ = image_input_size
 		f_height, f_width, _ = feature_map_size
@@ -949,6 +1476,61 @@ def train_fast_rcnn(train_dataset,
 								  huber,
 								  fast_rcnn_loss_lambda,
 								  training):
+		"""
+		Operate multi task loss for fast rcnn
+
+		Arguments)
+		1. backbone_model => 'custom.models.BackBone'
+		- Feature extract model for image
+
+		2. proposal_model => 'custom.models.Proposal'
+		- Region proposal using feature map
+
+		3. detection_model => 'custom.models.Detection'
+		- Detection model
+
+		4. image => 'tensorflow.python.framework.ops.EagerTensor'
+		- Image to use for train step
+
+		5. anchors => 'tensorflow.python.framework.ops.EagerTensor'
+		- Generated anchors in input image
+
+		6. ground_truth_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth bounding boxes in an image
+
+		7. ground_truth_labels => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth labels in an image
+
+		8. image_input_size => 'tuple'
+		- Fixed shape when input image to model
+
+		9. feature_map_size => 'tuple'
+		- Extracted feature map shape from image by backbone
+
+		10. number_of_proposals => 'int'
+		- Number of output in fast rcnn
+
+		11. number_of_objects => 'int'
+		- Number of objects to predict
+
+		12. sparse_categorical_cross_entropy => 'keras.losses
+												 .SparseCategoricalCrossentropy'
+		- Classification loss function
+
+		13. huber => 'keras.losses.Huber'
+		- Regression loss function
+
+		14. fast_rcnn_loss_lambda => 'int'
+		- Balancing parameter when calculate multi task loss between classification
+		  loss and regression loss
+
+		15. training => 'bool'
+		- Train model or not
+
+		Returns)
+		1. multi_task_loss => 'tensorflow.python.framework.ops.EagerTensor'
+		- Multi task loss define as (cls-loss + lambda * reg-loss)
+		"""
 
 		feature_map = backbone_model(image, training=training)
 		_, reg_pred = proposal_model(feature_map, training=False)
@@ -988,6 +1570,62 @@ def train_fast_rcnn(train_dataset,
 							 huber,
 							 fast_rcnn_loss_lambda,
 							 stochastic_gradient_descent):
+		"""
+		Calculate loss and update weights of fast rcnn
+
+		Arguments)
+		1. backbone_model => 'custom.models.BackBone'
+		- Feature extract model for image
+
+		2. proposal_model => 'custom.models.Proposal'
+		- Region proposal using feature map
+
+		3. detection_model => 'custom.models.Detection'
+		- Detection model
+
+		4. image => 'tensorflow.python.framework.ops.EagerTensor'
+		- Image to use for train step
+
+		5. anchors => 'tensorflow.python.framework.ops.EagerTensor'
+		- Generated anchors in input image
+
+		6. ground_truth_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth bounding boxes in an image
+
+		7. ground_truth_labels => 'tensorflow.python.framework.ops.EagerTensor'
+		- Ground truth labels in an image
+
+		8. image_input_size => 'tuple'
+		- Fixed shape when input image to model
+
+		9. feature_map_size => 'tuple'
+		- Extracted feature map shape from image by backbone
+
+		10. number_of_proposals => 'int'
+		- Number of output in fast rcnn
+
+		11. number_of_objects => 'int'
+		- Number of objects to predict
+
+		12. sparse_categorical_cross_entropy => 'keras.losses
+												 .SparseCategoricalCrossentropy'
+		- Classification loss function
+
+		13. huber => 'keras.losses.Huber'
+		- Regression loss function
+
+		14. fast_rcnn_loss_lambda => 'int'
+		- Balancing parameter when calculate multi task loss between
+		  classification loss and regression loss
+
+		15. stochastic_gradient_descent => 'keras.optimizer_v2
+											.gradient_descent.SGD'
+		- Optimize function
+
+		Returns)
+		1. multi_task_loss => 'tensorflow.python.framework.ops.EagerTensor'
+		- Multi task loss define as (cls-loss + lambda * reg-loss)
+		"""
 
 		with tf.GradientTape() as tape:
 			tape.watch(image)
