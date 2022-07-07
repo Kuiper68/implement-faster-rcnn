@@ -1545,11 +1545,11 @@ def train_fast_rcnn(train_dataset,
                 image_input_size, feature_map_size, number_of_proposals,
                 number_of_objects)
 
-        fast_rcnn_cls_pred, fast_rcnn_reg_pred = detection_model(
+        fast_rcnn_cls_logits_pred, fast_rcnn_reg_pred = detection_model(
             [feature_map, rois], training=training)
 
         fast_rcnn_cls_loss = sparse_categorical_cross_entropy(
-            fast_rcnn_cls_labels, fast_rcnn_cls_pred)
+            fast_rcnn_cls_labels, fast_rcnn_cls_logits_pred)
         fast_rcnn_reg_loss = fast_rcnn_objectness * huber(
             fast_rcnn_reg_labels, fast_rcnn_reg_pred)
         multi_task_loss = (tf.reduce_mean(fast_rcnn_cls_loss)
