@@ -617,6 +617,25 @@ def convert_centered_to_square_and_split(centered_bboxes):
     return bboxes_coordinates
 
 
+def convert_centered_to_square(centered_bboxes):
+	"""
+	Convert centered coordinates to square coordinates
+
+	Arguments)
+	1. centered_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+	- Coordinates defined (x, y, w, h)
+
+	Returns)
+	1. square_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+	- Coordinates defined (xmin, ymin, xmax, ymax)
+	"""
+
+	square_coordinates = convert_centered_to_square_and_split(centered_bboxes)
+	square_bboxes = tf.concat(square_coordinates, -1)
+
+	return square_bboxes
+
+
 def convert_square_to_centered(square_bboxes):
 	"""
 	Convert square coordinates to centered coordinates
