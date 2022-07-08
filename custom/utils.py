@@ -803,7 +803,7 @@ def regression_to_centered_predict(regression_predict,
     xy_c, wh_c = tf.split(current_bboxes, 2, -1)
     xy_p = xy_offset * wh_c + xy_c
     wh_p = tf.math.exp(wh_offset) * wh_c
-    centered_bboxes_predict = tf.concat([xy_p, wh_p], 2)
+    centered_bboxes_predict = tf.concat([xy_p, wh_p], -1)
 
     return centered_bboxes_predict
 
