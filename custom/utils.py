@@ -34,6 +34,24 @@ def CRLF():
     print()
 
 
+def square(anchor_side):
+    """
+    Get anchor size from anchor side
+
+    Arguments)
+    1. anchor_side => 'int'
+    - Length of anchor side line
+
+    Returns)
+    1. anchor_size => 'int'
+    - Area of anchor
+    """
+
+    anchor_size = anchor_side * anchor_side
+
+    return anchor_size
+
+
 def load_network_manager(model_class,
                          ckpt_path,
                          max_to_keep,
@@ -2032,3 +2050,102 @@ def test_faster_rcnn(image,
         class_pred, class_scores_pred, object_list, object_color_list)
 
     return image
+
+
+def test_image(backbone_model,
+               proposal_model,
+               detection_model,
+               image_input_size,
+               feature_map_size,
+               anchor_size_per_feature,
+               anchor_aspect_ratio_per_feature,
+               number_of_anchors_per_feature,
+               shorter_side_scale,
+               number_of_features,
+               number_of_proposals,
+               number_of_objects,
+               object_list,
+               object_color_list,
+               image_path):
+    """
+    Test image
+    """
+
+    image = cv2.imread(image_path)
+    image_shape = image.shape
+
+    input_image = cv2.resize(image, image_input_size[:2]) / lightness_max
+    anchors = generate_anchors(image_shape, image_input_size,
+        feature_map_size, anchor_size_per_feature,
+        anchor_aspect_ratio_per_feature, number_of_anchors_per_feature,
+        shorter_side_scale, number_of_features)
+
+    image_tensor = tf.expand_dims(tf.convert_to_tensor(input_image), 0)
+    anchors_tensor = tf.expand_dims(anchors, 0)
+
+    image = test_faster_rcnn(image, image_shape, image_input_size,
+        feature_map_size, image_tensor, anchors_tensor, backbone_model,
+        proposal_model, detection_model, number_of_proposals,
+        number_of_objects, object_list, object_color_list)
+
+    cv2.imshow('test', image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+def test_video(backbone_model,
+               proposal_model,
+               detection_model,
+               image_input_size,
+               feature_map_size,
+               anchor_size_per_feature,
+               anchor_aspect_ratio_per_feature,
+               number_of_anchors_per_feature,
+               shorter_side_scale, number_of_features,
+               number_of_proposals,
+               number_of_objects,
+               object_list,
+               object_color_list,
+               video_path=0):
+    """
+    Test video
+    """
+
+    capture = cv2.VideoCapture(video_path)
+
+    frame_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    frame_shape = (frame_height, frame_width, 3)
+
+    anchors = generate_anchors(frame_shape, image_input_size, feature_map_size,
+        anchor_size_per_feature, anchor_aspect_ratio_per_feature,
+        number_of_anchors_per_feature, shorter_side_scale, number_of_features)
+    anchors_tensor = tf.expand_dims(anchors, 0)
+
+    frame_rate = 10
+    capture.set(cv2.CAP_PROP_FPS, frame_rate)
+
+    while (True):
+        retval, frame = capture.read()
+
+        if (not retval):
+
+            break
+
+        input_frame = (cv2.resize(frame, image_input_size[:2])
+            / lightness_max)
+        frame_tensor = tf.expand_dims(tf.convert_to_tensor(input_frame), 0)
+
+        frame = test_faster_rcnn(frame, frame_shape, image_input_size,
+            feature_map_size, frame_tensor, anchors_tensor, backbone_model,
+            proposal_model, detection_model, number_of_proposals,
+            number_of_objects, object_list, object_color_list)
+
+        cv2.imshow('test', frame)
+
+        if (cv2.waitKey(1) == 27):
+
+            break
+
+    capture.release()
+    cv2.destroyAllWindows()
