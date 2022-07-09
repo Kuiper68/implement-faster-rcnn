@@ -20,6 +20,11 @@ from tqdm import tqdm
 import tensorflow as tf
 
 number_of_cls, number_of_reg = 2, 4
+lightness_max = 255
+draw_scale_parameter = 4e-4
+text_thickness_unit = 1
+line_thickness_unit = 3
+black = (0, 0, 0)
 
 def CRLF():
     """
@@ -124,7 +129,7 @@ def get_input_image_and_original_shape(image_path,
 
     image_array = cv2.imread(image_path)
     image_shape = image_array.shape
-    image_array = cv2.resize(image_array, image_input_size[:2]) / 255.
+    image_array = cv2.resize(image_array, image_input_size[:2]) / lightness_max
     image_tensor = tf.convert_to_tensor(image_array, dtype=tf.float32)
 
     return (image_tensor,
@@ -394,11 +399,15 @@ def load_pascal_voc_faster_rcnn_dataset(images_path,
 
     number_of_objects = len(object_dict) - 1 	# Omit backgound
     object_list = []
+    object_color_list = []
 
     for object_name in object_dict:
         object_list.append(object_name)
+        object_color_list.append((random.randint(0, lightness_max),
+            random.randint(0, lightness_max), random.randint(0, lightness_max)))
 
     products_config['variables']['object_list'] = str(object_list)
+    products_config['variables']['object_color_list'] = str(object_color_list)
     products_config['variables']['number_of_objects'] = str(number_of_objects)
 
     return (images_list,
@@ -618,43 +627,43 @@ def convert_centered_to_square_and_split(centered_bboxes):
 
 
 def convert_centered_to_square(centered_bboxes):
-	"""
-	Convert centered coordinates to square coordinates
+    """
+    Convert centered coordinates to square coordinates
 
-	Arguments)
-	1. centered_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
-	- Coordinates defined (x, y, w, h)
+    Arguments)
+    1. centered_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+    - Coordinates defined (x, y, w, h)
 
-	Returns)
-	1. square_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
-	- Coordinates defined (xmin, ymin, xmax, ymax)
-	"""
+    Returns)
+    1. square_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+    - Coordinates defined (xmin, ymin, xmax, ymax)
+    """
 
-	square_coordinates = convert_centered_to_square_and_split(centered_bboxes)
-	square_bboxes = tf.concat(square_coordinates, -1)
+    square_coordinates = convert_centered_to_square_and_split(centered_bboxes)
+    square_bboxes = tf.concat(square_coordinates, -1)
 
-	return square_bboxes
+    return square_bboxes
 
 
 def convert_square_to_centered(square_bboxes):
-	"""
-	Convert square coordinates to centered coordinates
+    """
+    Convert square coordinates to centered coordinates
 
-	Arguments)
-	1. square_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
-	- Coordinates defined (xmin, ymin, xmax, ymax)
+    Arguments)
+    1. square_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+    - Coordinates defined (xmin, ymin, xmax, ymax)
 
-	Returns)
-	1. centered_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
-	- Coordinates defined (x, y, w, h)
-	"""
+    Returns)
+    1. centered_bboxes => 'tensorflow.python.framework.ops.EagerTensor'
+    - Coordinates defined (x, y, w, h)
+    """
 
-	xy_min, xy_max = tf.split(square_bboxes, 2, -1)
-	xy = (xy_min + xy_max) / 2
-	wh = xy_max - xy_min
-	centered_bboxes = tf.concat([xy, wh], -1)
+    xy_min, xy_max = tf.split(square_bboxes, 2, -1)
+    xy = (xy_min + xy_max) / 2
+    wh = xy_max - xy_min
+    centered_bboxes = tf.concat([xy, wh], -1)
 
-	return centered_bboxes
+    return centered_bboxes
 
 
 def get_iou_map(centered_bboxes_1,
@@ -1431,14 +1440,15 @@ def train_fast_rcnn(train_dataset,
           regression loss
         """
 
-        height, width, _ = image_input_size
+        i_height, i_width, _ = image_input_size
         f_height, f_width, _ = feature_map_size
-        projection_constant = tf.constant([[[f_width / width, f_height / height,
-            f_width / width, f_height / height]]])
+
+        project_feature_map_to_input_image_const = tf.constant(
+            [[[f_width / i_width, f_height / i_height, f_width / i_width,
+            f_height / i_height]]])
 
         centered_bboxes_pred = regression_to_centered_predict(reg_pred, anchors)
-        square_bboxes_pred = tf.concat(convert_centered_to_square_and_split(
-            centered_bboxes_pred), -1)
+        square_bboxes_pred = convert_centered_to_square(centered_bboxes_pred)
 
         mask = tf.reduce_all(tf.concat([tf.greater_equal(square_bboxes_pred, 0.),
             tf.expand_dims(tf.less(square_bboxes_pred[:, :, 2],
@@ -1479,7 +1489,8 @@ def train_fast_rcnn(train_dataset,
         sample_indices = tf.expand_dims(tf.random.shuffle(tf.squeeze(tf.concat(
             [pos_indices, neg_indices], axis=-1))), 0)
 
-        rois_temp = tf.multiply(filtered_squares_bboxes_pred, projection_constant)
+        rois_temp = tf.multiply(filtered_squares_bboxes_pred,
+            project_feature_map_to_input_image_const)
         rois = tf.gather(tf.squeeze(rois_temp), sample_indices)
 
         fast_rcnn_objectness_temp = tf.cast(pos_mask, tf.float32)
@@ -1754,3 +1765,270 @@ def train_fast_rcnn(train_dataset,
 
         print_epoch_message(epoch_start, train_loss_list, valid_loss_list)
         save_weights(epoch, save_cycle, *ckpt_managers)
+
+
+def draw_bounding_boxes(image,
+                        image_shape,
+                        unit_square_bboxes_pred,
+                        class_pred,
+                        class_scores_pred,
+                        object_list,
+                        object_color_list,
+                        score_ndigit=3,
+                        bbox_thickness=None,
+                        text_thickness=None,
+                        text_scale=None,
+                        text_style=cv2.FONT_HERSHEY_COMPLEX,
+                        text_color=black):
+    """
+    Draw bounding boxes on original image
+
+    Arguments)
+    1. image => 'numpy.ndarray'
+    - Original image
+
+    2. image_shape => 'tuple'
+    - Original image shape
+
+    3. unit_square_bboxes_pred => 'tensorflow.python.framework.ops.EagerTensor'
+    - Bounding boxes projected to [0, 1] interval
+
+    4. class_pred => 'tensorflow.python.framework.ops.EagerTensor'
+    - Label of predicted object
+
+    5. class_scores_pred => 'tensorflow.python.framework.ops.EagerTensor'
+    - Class score of object
+
+    6. object_list => 'list'
+    - List of object labels
+
+    7. object_color_list => 'list'
+    - List of color-tuple for each object
+
+    8. score_ndigit => 'int'
+    - Rounding digits for score
+
+    9. bbox_thickness => 'int'
+    - Bounding box line thickness
+
+    10. text_thickness => 'int'
+    - Text thickness
+
+    11. text_scale => 'float'
+    - Size of text
+
+    12. text_style => 'int'
+    - Text font
+
+    13. text_color => 'tuple'
+    - Text color
+
+    Returns)
+    1. image => 'numpy.ndarray'
+    - Image with bounding box drawn
+    """
+
+    height, width, _ = image_shape
+
+    if (text_scale == None):
+        text_scale = (height + width) * draw_scale_parameter
+
+    if (text_thickness == None):
+        thickness_temp = int((height + width) * draw_scale_parameter
+            * text_scale)
+
+        if (thickness_temp):
+            text_thickness = thickness_temp * text_thickness_unit
+
+        else:
+            text_thickness = text_thickness_unit
+
+    if (bbox_thickness == None):
+        bbox_thickness_temp = int((height + width) * draw_scale_parameter
+            * text_scale)
+
+        if (bbox_thickness_temp):
+            bbox_thickness = bbox_thickness_temp * line_thickness_unit
+
+        else:
+            bbox_thickness = line_thickness_unit
+
+    labels_indices = tf.where(tf.logical_and(tf.not_equal(class_pred, 0),
+        tf.greater_equal(class_scores_pred, 0.4)))
+
+    project_unit_to_original_shape = tf.constant([width, height, width, height],
+        tf.float32)
+    square_bboxes_pred = tf.cast(tf.gather_nd(unit_square_bboxes_pred,
+        labels_indices) * project_unit_to_original_shape, tf.int32).numpy()
+    class_scores_pred = tf.gather_nd(class_scores_pred, labels_indices).numpy()
+    class_pred = tf.cast(tf.gather_nd(class_pred, labels_indices),
+        tf.int32).numpy()
+
+    for data in zip(square_bboxes_pred, class_scores_pred, class_pred):
+        square_bboxes, class_score, object = data
+        (xmin, ymin, xmax, ymax) = square_bboxes.tolist()
+        (class_score) = class_score.tolist()
+        (object) = object.tolist()
+
+        # Draw Bounding Box
+        cv2.rectangle(image, (xmin, ymin), (xmax, ymax),
+            object_color_list[object], bbox_thickness)
+
+        # Get Text Size
+        text = object_list[object] + f': {round(class_score, score_ndigit)}'
+        (text_width, text_height), _ = cv2.getTextSize(text,
+            text_style, text_scale, text_thickness)
+
+        # Draw Text
+        cv2.rectangle(image, (xmin, ymin - text_height),
+            (xmin + text_width, ymin), object_color_list[object], -1)
+        cv2.rectangle(image, (xmin, ymin - text_height),
+            (xmin + text_width, ymin), object_color_list[object],
+            bbox_thickness)
+        cv2.putText(image, text, (xmin, ymin), text_style,
+            text_scale, text_color, text_thickness, cv2.LINE_AA)
+
+    return image
+
+
+def test_faster_rcnn(image,
+                     image_shape,
+                     image_input_size,
+                     feature_map_size,
+                     image_tensor,
+                     anchors_tensor,
+                     backbone_model,
+                     proposal_model,
+                     detection_model,
+                     number_of_proposals,
+                     number_of_objects,
+                     object_list,
+                     object_color_list):
+    """
+    Test faster rcnn model
+
+    Arguments)
+    1. image => 'numpy.ndarray'
+    - Original image
+
+    2. image_shape => 'tuple'
+    - Original image shape
+
+    3. image_input_size => 'tuple'
+    - Fixed shape when input image to model
+
+    4. feature_map_size => 'tuple'
+    - Extracted feature map shape from image by backbone
+
+    5. image_tensor => 'tensorflow.python.framework.ops.EagerTensor'
+    - Image tensor from which to extract feature maps
+
+    6. anchors_tensor => 'tensorflow.python.framework.ops.EagerTensor'
+	- Generated anchors in input image
+
+    7. backbone_model => 'custom.models.BackBone'
+    - Feature extract model for image
+
+    8. proposal_model => 'custom.models.Proposal'
+    - Region proposal using feature map
+
+    9. detection_model => 'custom.models.Detection'
+    - Detection model
+
+    10. number_of_proposals => 'int'
+    - Number of output in fast rcnn
+
+    11. number_of_objects => 'int'
+    - Number of objects to predict
+
+    12. object_list => 'list'
+    - List of object labels
+
+    13. object_color_list => 'list'
+    - List of color-tuple for each object
+
+    Returns)
+    1. image => 'numpy.ndarray'
+    - Image with bounding box drawn
+    """
+
+    feature_map = backbone_model(image_tensor, training=False)
+    rpn_cls_pred, rpn_reg_pred = proposal_model(feature_map, training=False)
+
+    rpn_cls_prob = tf.nn.softmax(rpn_cls_pred)
+    _, rpn_true_prob = tf.squeeze(tf.split(rpn_cls_prob, 2, 2), -1)
+    objectness_prob = rpn_true_prob / tf.reduce_sum(rpn_cls_prob, 2)
+
+    i_height, i_width, _ = image_input_size
+    f_height, f_width, _ = feature_map_size
+
+    project_feature_map_to_input_image_const = tf.constant([[[i_width / f_width,
+        i_height / f_height, i_width / f_width, i_height / f_height]]])
+    project_input_image_to_unit = tf.constant([[1 / i_width, 1 / i_height,
+        1 / i_width, 1 / i_height]])
+    project_input_image_to_feature_map_const = (project_input_image_to_unit
+        * tf.constant([[f_width, f_height, f_width, f_height]], tf.float32))
+
+    centered_bboxes_pred = regression_to_centered_predict(rpn_reg_pred,
+        anchors_tensor)
+    square_bboxes_pred = convert_centered_to_square(centered_bboxes_pred)
+
+    mask = tf.reduce_all(tf.concat([tf.greater_equal(square_bboxes_pred, 0.),
+        tf.expand_dims(tf.less(square_bboxes_pred[:, :, 2],
+            float(image_input_size[1])), -1),
+        tf.expand_dims(tf.less(square_bboxes_pred[:, :, 3],
+            float(image_input_size[0])), -1),
+        tf.expand_dims(tf.less(square_bboxes_pred[:, :, 0],
+            square_bboxes_pred[:, :, 2]), -1),
+        tf.expand_dims(tf.less(square_bboxes_pred[:, :, 1],
+            square_bboxes_pred[:, :, 3]), -1)], -1), axis=-1)
+
+    filtered_centered_bboxes_pred = tf.expand_dims(tf.boolean_mask(
+        centered_bboxes_pred, mask), 0)
+    filtered_squares_bboxes_pred = (tf.boolean_mask(square_bboxes_pred, mask)
+        * project_input_image_to_feature_map_const)
+
+    filtered_objectness_prob = tf.boolean_mask(objectness_prob, mask)
+
+    selected_indices = tf.image.non_max_suppression(
+        filtered_squares_bboxes_pred, filtered_objectness_prob,
+        number_of_proposals, iou_threshold=0.5)
+
+    rois = tf.expand_dims(tf.gather(filtered_squares_bboxes_pred,
+        selected_indices), 0)
+
+    centered_rois = convert_square_to_centered((rois
+        * project_feature_map_to_input_image_const))
+    centered_rois = tf.tile(centered_rois, [1, 1, number_of_objects])
+    centered_rois = tf.reshape(centered_rois, (1, number_of_proposals,
+        number_of_objects, number_of_reg))
+
+    fast_rcnn_cls_logits_pred, fast_rcnn_reg_pred = detection_model(
+        [feature_map, rois], training=False)
+
+    # Class Scores
+    fast_rcnn_cls_pred = tf.nn.softmax(fast_rcnn_cls_logits_pred)
+
+    # Objects Classification
+    object_class_pred = tf.argmax(fast_rcnn_cls_pred, -1)
+
+    # Bounding Boxes
+    fast_rcnn_reg_pred = tf.reshape(fast_rcnn_reg_pred,
+        [1, number_of_proposals, number_of_objects, number_of_reg])
+    centered_bboxes_pred = regression_to_centered_predict(fast_rcnn_reg_pred,
+        centered_rois)
+    square_bboxes_pred = convert_centered_to_square(centered_bboxes_pred)
+    square_bboxes_pred = tf.concat([tf.zeros([1, number_of_proposals, 1,
+        number_of_reg]), square_bboxes_pred], -2)
+    unit_square_bboxes_pred = square_bboxes_pred * project_input_image_to_unit
+
+    # Non-Maximum-Suppression
+    unit_square_bboxes_pred, class_scores_pred, class_pred, _ = \
+        tf.image.combined_non_max_suppression(unit_square_bboxes_pred,
+            fast_rcnn_cls_pred, number_of_proposals, number_of_proposals,
+            iou_threshold=0.3)
+
+    image = draw_bounding_boxes(image, image_shape, unit_square_bboxes_pred,
+        class_pred, class_scores_pred, object_list, object_color_list)
+
+    return image
