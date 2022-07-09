@@ -3,3 +3,4 @@ custom/__pycache__/
 products.ini
 checkpoint/
 train_dataset.pickle
+test_image/
