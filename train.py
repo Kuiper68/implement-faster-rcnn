@@ -29,31 +29,13 @@ def parser_config(config_file):
     - Filename with extension '*.ini'
     """
 
-    def square(anchor_side):
-        """
-        Get anchor size from anchor side
-
-        Arguments)
-        1. anchor_side => 'int'
-        - Length of anchor side line
-
-        Returns)
-        1. anchor_size => 'int'
-        - Area of anchor
-        """
-
-        anchor_size = anchor_side * anchor_side
-
-        return anchor_size
-
-
     config = ConfigParser()
     config.read(config_file)
 
     image_input_size = literal_eval(config.get('variables', 'image_input_size'))
     anchor_side_per_feature = literal_eval(config.get('variables',
         'anchor_side_per_feature'))
-    anchor_size_per_feature = list(map(square, anchor_side_per_feature))
+    anchor_size_per_feature = list(map(utils.square, anchor_side_per_feature))
     anchor_aspect_ratio_per_feature = literal_eval(config.get('variables',
         'anchor_aspect_ratio_per_feature'))
     shorter_side_scale = config.getint('variables', 'shorter_side_scale')
