@@ -5,6 +5,8 @@
 ---
 ## Description
 
+<img src="src/object_detection_images.png" width="auto">
+
 Faster R-CNN 은 객체를 경계상자로 표시하는 object detection 방법론 중 하나이며 객체 영역을 추천하는데 ``Selective Search`` 가 아닌 ``Region Proposal Network`` 으로 불리는 네트워크(모델)를 사용하여 이전의 Fast R-CNN 보다 훨씬 빠르게 추천할 수 있게 되었다는 점에서 의미가 있는 딥러닝 모델입니다.
 
 ---
@@ -68,8 +70,6 @@ python test.py webcam
 
 <img src="src/test_2.gif" width="640">
 <br><br>
-
-그 밖에 **src**에 테스트한 이미지 파일이 있습니다.
 
 ---
 
